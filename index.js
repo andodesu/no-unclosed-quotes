@@ -3,42 +3,31 @@
 
     // ============================================================
     // SillyTavern Extension: Quote Guard
-    // Blocks the Send button from firing if the message contains
-    // an unclosed double quote. Only the send button is guarded —
-    // the Enter key is left untouched (important on Android, where
-    // Enter inserts a newline).
+    // Blocks the send button on desktop *and* mobile if the
+    // message has an unclosed double quote. The Enter key is
+    // deliberately left alone so Android can keep its newline.
     // ============================================================
 
     const LOG = '[QuoteGuard]';
 
-    // --- Context (global, never imported) ---
-
+    // --- Context ---
     function getContext() {
         return window.SillyTavern?.getContext() || null;
     }
 
-    // --- Toast / notification with fallbacks ---
-
+    // --- Toast ---
     function notify(msg) {
         const ctx = getContext();
         try {
-            if (typeof ctx?.toast === 'function') {
-                ctx.toast(msg, 'error');
-                return;
-            }
-            if (typeof window.toastr?.error === 'function') {
-                window.toastr.error(msg);
-                return;
-            }
-        } catch { /* fall through */ }
+            if (typeof ctx?.toast === 'function') { ctx.toast(msg, 'error'); return; }
+            if (typeof window.toastr?.error === 'function') { window.toastr.error(msg); return; }
+        } catch { /* ignore */ }
         console.warn(LOG, msg);
     }
 
     // --- Quote check ---
-
     function hasUnbalancedDoubleQuotes(text) {
         if (typeof text !== 'string' || text.length === 0) return false;
-        // Ignore escaped quotes like \" so "He said \"hi\"" counts as balanced.
         const cleaned = text.replace(/\\"/g, '');
         let count = 0;
         for (let i = 0; i < cleaned.length; i++) {
@@ -47,53 +36,70 @@
         return count % 2 !== 0;
     }
 
-    // --- Send button interceptor ---
+    // --- Send-button detection (desktop + mobile) ---
+    // We match any element that looks like the send button.
+    function isSendButton(el) {
+        if (!el) return false;
+        // Desktop: #send_but
+        if (el.id === 'send_but') return true;
+        // Mobile / alt builds: class-based or data-attribute
+        if (el.classList?.contains('send_but')) return true;
+        if (el.classList?.contains('st-send-button')) return true;
+        if (el.dataset?.testid === 'send-button') return true;
+        // Fallback: any <button type="submit"> inside the chat form
+        if (el.tagName === 'BUTTON' && el.type === 'submit') return true;
+        return false;
+    }
 
+    // --- Interceptor ---
     let lastBlockedAt = 0;
 
     function intercept(e) {
-        // Only care about events targeting the send button.
-        // `closest` handles clicks on child elements (SVG icon etc.).
-        const btn = e.target?.closest?.('#send_but');
+        // Walk up from the event target to find the button.
+        let node = e.target;
+        let btn = null;
+        while (node && node !== document) {
+            if (isSendButton(node)) { btn = node; break; }
+            node = node.parentElement;
+        }
         if (!btn) return;
 
         const textarea = document.querySelector('#send_textarea');
         if (!textarea) return;
         if (!hasUnbalancedDoubleQuotes(textarea.value)) return;
 
-        // Block the event before ST's own handler runs.
+        // Block the event before ST's handler sees it.
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
 
-        // Throttle the toast so pointerdown+click don't double-fire it.
+        // Throttle so touchstart + touchend + click don't triple-toast.
         const now = Date.now();
-        if (now - lastBlockedAt > 250) {
+        if (now - lastBlockedAt > 300) {
             lastBlockedAt = now;
             notify('Unclosed double quote detected — message not sent.');
         }
     }
 
     // --- Setup ---
-
     function setup() {
         if (document.body?.dataset.quoteGuardAttached) return true;
 
-        // Capture phase on `document` guarantees we run before any
-        // listener ST attached to the button itself. We watch both
-        // `pointerdown` and `click` because different ST builds bind
-        // to different events, and some UIs fire one before the other.
+        // Capture phase on document so we always run first.
+        // Cover every event family a mobile browser might use.
         document.addEventListener('pointerdown', intercept, true);
+        document.addEventListener('touchstart', intercept, true);
+        document.addEventListener('touchend', intercept, true);
         document.addEventListener('click', intercept, true);
 
         if (document.body) {
             document.body.dataset.quoteGuardAttached = 'true';
         }
+        console.log(`${LOG} listeners attached.`);
         return true;
     }
 
-    // --- Init with retry loop (same pattern as delete-from-here) ---
-
+    // --- Init with retry loop ---
     let attempts = 0;
     let interval = null;
 
