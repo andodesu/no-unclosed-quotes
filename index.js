@@ -5,8 +5,8 @@
     const FLASH_DURATION = 900;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
-    const NOTIFY_COOLDOWN_MS = 3000;
-    const TOAST_DURATION_MS = 1500;
+    const NOTIFY_COOLDOWN_MS = 2500;
+    const TOAST_DURATION_MS = 2000;
 
     // --- Style injection ---
     function injectFlashStyle() {
@@ -258,7 +258,7 @@
 
             const unmatched = findUnmatchedQuotePositions(value);
             if (unmatched.length) {
-                block(e, 'Unclosed double quote detected — message not sent.');
+                block(e, 'Unclosed double quote');
                 try { flashPositions(textarea, unmatched); }
                 catch (err) { console.warn(LOG, 'flash failed:', err); }
                 return;
@@ -266,7 +266,7 @@
 
             const empty = findEmptyQuotePositions(value);
             if (empty.length) {
-                block(e, 'Empty quotes detected — message not sent.');
+                block(e, 'Empty double quotes');
                 try { flashPositions(textarea, empty); }
                 catch (err) { console.warn(LOG, 'flash failed:', err); }
                 return;
