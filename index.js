@@ -23,8 +23,18 @@
                 '  z-index: 9999;',
                 '  white-space: pre-wrap;',
                 '  word-wrap: break-word;',
-                '  color: transparent;',
-                '  background: transparent;',
+                '  background: transparent !important;',
+                '}',
+                // Force ALL text inside the overlay to be invisible,
+                // regardless of theme rules. -webkit-text-fill-color is
+                // the property WebKit actually uses for text rendering;
+                // plain `color` alone can be overridden by theme rules.
+                `.${OVERLAY_CLASS},`,
+                `.${OVERLAY_CLASS} * {`,
+                '  color: transparent !important;',
+                '  -webkit-text-fill-color: transparent !important;',
+                '  text-shadow: none !important;',
+                '  caret-color: transparent !important;',
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
                 // Fallback for WebViews without color-mix().
@@ -164,8 +174,7 @@
         ];
         for (const p of props) overlay.style[p] = cs[p];
 
-        // Position using fixed coordinates from getBoundingClientRect —
-        // no offsetParent math, works regardless of layout.
+        // Position using fixed coordinates from getBoundingClientRect.
         const rect = textarea.getBoundingClientRect();
         overlay.style.left = rect.left + 'px';
         overlay.style.top = rect.top + 'px';
@@ -231,7 +240,7 @@
         }
     }
 
-    // --- Flash: overlay + selection (glow removed) ---
+    // --- Flash: overlay + selection ---
     function flashPositions(textarea, positions) {
         if (!positions.length) return;
         flashOverlay(textarea, positions);
