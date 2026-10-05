@@ -3,12 +3,15 @@
 
     const LOG = '[QuoteGuard]';
     const FLASH_DURATION = 900;
-    const FLASH_MAX_SPAN = 40;
     const OVERLAY_CLASS = 'quote-guard-overlay';
-    const HIGHLIGHT_CLASS = 'quote-guard-highlight';
+    const QUOTED_CLASS = 'quote-guard-quoted';
+    const ALERT_CLASS = 'quote-guard-alert';
 
-    // --- Style injection ---
-    function injectFlashStyle() {
+    // ────────────────────────────────────────────────────────────
+    // Style injection
+    // ────────────────────────────────────────────────────────────
+
+    function injectStyle() {
         try {
             if (document.getElementById('quote-guard-style')) return true;
             const head = document.head || document.getElementsByTagName('head')[0];
@@ -20,26 +23,27 @@
                 '  position: fixed;',
                 '  pointer-events: none;',
                 '  overflow: hidden;',
-                '  z-index: 9999;',
+                '  z-index: 3;',
                 '  white-space: pre-wrap;',
                 '  word-wrap: break-word;',
+                '  overflow-wrap: break-word;',
                 '  color: transparent;',
                 '  background: transparent;',
+                '  mix-blend-mode: multiply;',
                 '}',
-                `.${HIGHLIGHT_CLASS} {`,
-                // Fallback for WebViews without color-mix().
-                '  background-color: rgba(220, 60, 60, 0.45);',
-                // Tint using SillyTavern's theme quote colour at 45% opacity.
-                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 45%, transparent);',
+                `.${QUOTED_CLASS} {`,
+                '  background-color: rgba(220, 60, 60, 0.22);',
+                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 22%, transparent);',
                 '  border-radius: 2px;',
                 '}',
-                '@keyframes quoteGuardFade {',
-                '  0% { opacity: 1; }',
-                '  80% { opacity: 1; }',
-                '  100% { opacity: 0; }',
+                `.${ALERT_CLASS} {`,
+                '  background-color: rgba(220, 60, 60, 0.75);',
+                '  animation: quoteGuardPulse 300ms ease-in-out 3;',
+                '  border-radius: 2px;',
                 '}',
-                `.${OVERLAY_CLASS}.quote-guard-fade {`,
-                `  animation: quoteGuardFade ${FLASH_DURATION}ms ease-out forwards;`,
+                '@keyframes quoteGuardPulse {',
+                '  0%, 100% { opacity: 1; }',
+                '  50% { opacity: 0.35; }',
                 '}',
             ].join('\n');
             head.appendChild(style);
@@ -50,14 +54,14 @@
         }
     }
 
-    // --- Context ---
+    // ────────────────────────────────────────────────────────────
+    // Context / notify
+    // ────────────────────────────────────────────────────────────
+
     function getContext() {
-        return window.SillyTavern?.getContext()
-            || window.getContext?.()
-            || null;
+        return window.SillyTavern?.getContext() || window.getContext?.() || null;
     }
 
-    // --- Notification ---
     function notify(msg) {
         const ctx = getContext();
         try {
@@ -67,7 +71,10 @@
         console.warn(LOG, msg);
     }
 
-    // --- Quote helpers ---
+    // ────────────────────────────────────────────────────────────
+    // Quote scanning
+    // ────────────────────────────────────────────────────────────
+
     function isDoubleQuote(ch) {
         return ch === '"'
             || ch === '\u201C' || ch === '\u201D'
@@ -75,16 +82,212 @@
             || ch === '\u00AB' || ch === '\u00BB';
     }
 
-    function findUnmatchedQuotePositions(text) {
-        const stack = [];
+    function escapeHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Returns { ranges, unmatched }.
+    // ranges:    interiors of quoted regions. Balanced pairs give a bounded
+    //            range; an unclosed opening quote gives a range to EOT.
+    // unmatched: positions of unclosed opening quote marks.
+    function scanQuotes(text) {
+        const ranges = [];
+        const unmatched = [];
+        let openStart = -1;
         for (let i = 0; i < text.length; i++) {
             const ch = text[i];
             if (ch === '\\' && text[i + 1] === '"') { i++; continue; }
             if (!isDoubleQuote(ch)) continue;
-            if (stack.length > 0) stack.pop();
-            else stack.push(i);
+            if (openStart === -1) {
+                openStart = i;
+            } else {
+                if (i > openStart + 1) {
+                    ranges.push({ start: openStart + 1, end: i });
+                }
+                openStart = -1;
+            }
         }
-        return stack;
+        if (openStart !== -1) {
+            unmatched.push(openStart);
+            if (openStart + 1 < text.length) {
+                ranges.push({ start: openStart + 1, end: text.length });
+            }
+        }
+        return { ranges, unmatched };
+    }
+
+    function buildOverlayHtml(text, alertPositions) {
+        const { ranges } = scanQuotes(text);
+        const marks = [];
+        for (const r of ranges) {
+            marks.push({ start: r.start, end: r.end, cls: QUOTED_CLASS });
+        }
+        if (alertPositions && alertPositions.length) {
+            for (const p of alertPositions) {
+                marks.push({ start: p, end: p + 1, cls: ALERT_CLASS });
+            }
+        }
+        marks.sort((a, b) => a.start - b.start);
+
+        let html = '';
+        let cursor = 0;
+        for (const m of marks) {
+            if (m.start < cursor) continue;
+            html += escapeHtml(text.slice(cursor, m.start));
+            html += `<span class="${m.cls}">`;
+            html += escapeHtml(text.slice(m.start, m.end));
+            html += '</span>';
+            cursor = m.end;
+        }
+        html += escapeHtml(text.slice(cursor));
+        return html;
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Send button
+    // ────────────────────────────────────────────────────────────
+
+    function findSendButton() {
+        const candidates = [
+            '#send_but',
+            '.send_but',
+            '.st-send-button',
+            '[data-testid="send-button"]',
+            'button[type="submit"]',
+        ];
+        for (const sel of candidates) {
+            const el = document.querySelector(sel);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Overlay: the live tinted mirror
+    // ────────────────────────────────────────────────────────────
+
+    let overlayEl = null;
+    let textareaEl = null;
+    let alertTimer = null;
+    let alertPositions = null;
+    let resizeObserver = null;
+
+    function ensureOverlay() {
+        if (overlayEl && overlayEl.isConnected) return overlayEl;
+        if (!document.body) return null;
+        overlayEl = document.createElement('div');
+        overlayEl.className = OVERLAY_CLASS;
+        document.body.appendChild(overlayEl);
+        return overlayEl;
+    }
+
+    function applyOverlayTextStyle() {
+        if (!overlayEl || !textareaEl) return;
+        try {
+            const cs = getComputedStyle(textareaEl);
+            const props = [
+                'fontFamily', 'fontSize', 'fontWeight', 'fontStyle',
+                'lineHeight', 'letterSpacing', 'wordSpacing',
+                'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+                'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+                'borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle',
+                'boxSizing', 'textAlign', 'textIndent', 'textTransform',
+            ];
+            for (const p of props) overlayEl.style[p] = cs[p];
+            overlayEl.style.borderTopColor = 'transparent';
+            overlayEl.style.borderRightColor = 'transparent';
+            overlayEl.style.borderBottomColor = 'transparent';
+            overlayEl.style.borderLeftColor = 'transparent';
+        } catch (err) {
+            console.warn(LOG, 'overlay style copy failed:', err);
+        }
+    }
+
+    function applyOverlayGeometry() {
+        if (!overlayEl || !textareaEl || !overlayEl.isConnected) return;
+        const rect = textareaEl.getBoundingClientRect();
+        overlayEl.style.left = rect.left + 'px';
+        overlayEl.style.top = rect.top + 'px';
+        overlayEl.style.width = rect.width + 'px';
+        overlayEl.style.height = rect.height + 'px';
+        overlayEl.scrollTop = textareaEl.scrollTop;
+        overlayEl.scrollLeft = textareaEl.scrollLeft;
+    }
+
+    function renderOverlay() {
+        if (!overlayEl || !textareaEl) return;
+        overlayEl.innerHTML = buildOverlayHtml(textareaEl.value, alertPositions);
+        overlayEl.scrollTop = textareaEl.scrollTop;
+        overlayEl.scrollLeft = textareaEl.scrollLeft;
+    }
+
+    function onInput() {
+        if (alertTimer) {
+            clearTimeout(alertTimer);
+            alertTimer = null;
+            alertPositions = null;
+        }
+        renderOverlay();
+    }
+
+    function onScroll() {
+        if (!overlayEl || !textareaEl) return;
+        overlayEl.scrollTop = textareaEl.scrollTop;
+        overlayEl.scrollLeft = textareaEl.scrollLeft;
+    }
+
+    function reposition() {
+        applyOverlayGeometry();
+    }
+
+    function flashAlert(positions) {
+        alertPositions = positions;
+        renderOverlay();
+        if (alertTimer) clearTimeout(alertTimer);
+        alertTimer = setTimeout(() => {
+            alertTimer = null;
+            alertPositions = null;
+            renderOverlay();
+        }, FLASH_DURATION);
+    }
+
+    function attachToTextarea() {
+        const el = document.querySelector('#send_textarea');
+        if (!el) return false;
+        if (el === textareaEl && el.isConnected) return true;
+
+        textareaEl = el;
+        textareaEl.addEventListener('input', onInput);
+        textareaEl.addEventListener('scroll', onScroll, { passive: true });
+        textareaEl.addEventListener('focus', reposition);
+
+        ensureOverlay();
+        applyOverlayTextStyle();
+        applyOverlayGeometry();
+        renderOverlay();
+
+        if (resizeObserver) resizeObserver.disconnect();
+        try {
+            resizeObserver = new ResizeObserver(() => {
+                applyOverlayTextStyle();
+                applyOverlayGeometry();
+                renderOverlay();
+            });
+            resizeObserver.observe(textareaEl);
+        } catch (err) {
+            console.warn(LOG, 'ResizeObserver unavailable:', err);
+        }
+
+        console.log(`${LOG} overlay attached to textarea.`);
+        return true;
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Guard
+    // ────────────────────────────────────────────────────────────
+
+    function findUnmatchedQuotePositions(text) {
+        return scanQuotes(text).unmatched;
     }
 
     function findEmptyQuotePositions(text) {
@@ -101,144 +304,6 @@
         return positions;
     }
 
-    // --- Send-button finder ---
-    function findSendButton() {
-        const candidates = [
-            '#send_but',
-            '.send_but',
-            '.st-send-button',
-            '[data-testid="send-button"]',
-            'button[type="submit"]',
-        ];
-        for (const sel of candidates) {
-            const el = document.querySelector(sel);
-            if (el) return el;
-        }
-        return null;
-    }
-
-    // --- Flash: overlay with per-character highlight ---
-    function escapeHtml(s) {
-        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    function buildOverlay(textarea, positions) {
-        const sorted = positions.slice().sort((a, b) => a - b);
-        const text = textarea.value;
-
-        // Merge adjacent/overlapping positions into ranges.
-        const ranges = [];
-        for (const pos of sorted) {
-            const last = ranges[ranges.length - 1];
-            if (last && pos <= last.end + 1) {
-                last.end = Math.max(last.end, pos);
-            } else {
-                ranges.push({ start: pos, end: pos });
-            }
-        }
-
-        let html = '';
-        let cursor = 0;
-        for (const r of ranges) {
-            html += escapeHtml(text.slice(cursor, r.start));
-            html += `<span class="${HIGHLIGHT_CLASS}">`;
-            html += escapeHtml(text.slice(r.start, r.end + 1));
-            html += '</span>';
-            cursor = r.end + 1;
-        }
-        html += escapeHtml(text.slice(cursor));
-
-        const overlay = document.createElement('div');
-        overlay.className = OVERLAY_CLASS;
-        overlay.innerHTML = html;
-
-        // Copy computed styles so the mirror lines up exactly.
-        const cs = getComputedStyle(textarea);
-        const props = [
-            'fontFamily', 'fontSize', 'fontWeight', 'fontStyle',
-            'lineHeight', 'letterSpacing', 'wordSpacing',
-            'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-            'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-            'borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle',
-            'boxSizing', 'textAlign', 'textIndent', 'textTransform',
-        ];
-        for (const p of props) overlay.style[p] = cs[p];
-
-        // Position using fixed coordinates from getBoundingClientRect —
-        // no offsetParent math, works regardless of layout.
-        const rect = textarea.getBoundingClientRect();
-        overlay.style.left = rect.left + 'px';
-        overlay.style.top = rect.top + 'px';
-        overlay.style.width = rect.width + 'px';
-        overlay.style.height = rect.height + 'px';
-
-        document.body.appendChild(overlay);
-
-        // Match scroll position.
-        overlay.scrollTop = textarea.scrollTop;
-        overlay.scrollLeft = textarea.scrollLeft;
-
-        // Keep scroll in sync for the short life of the overlay.
-        const onScroll = () => {
-            overlay.scrollTop = textarea.scrollTop;
-            overlay.scrollLeft = textarea.scrollLeft;
-        };
-        textarea.addEventListener('scroll', onScroll, { passive: true });
-        overlay._cleanup = () => textarea.removeEventListener('scroll', onScroll);
-
-        return overlay;
-    }
-
-    function flashOverlay(textarea, positions) {
-        let overlay = null;
-        try {
-            overlay = buildOverlay(textarea, positions);
-            overlay.classList.add('quote-guard-fade');
-        } catch (err) {
-            console.warn(LOG, 'overlay flash failed:', err);
-        }
-        setTimeout(() => {
-            if (overlay) {
-                try { overlay._cleanup?.(); } catch { /* ignore */ }
-                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-            }
-        }, FLASH_DURATION);
-    }
-
-    // --- Flash: native selection (works on standard browsers, no-op in Tauri) ---
-    function flashSelection(textarea, positions) {
-        try {
-            const sorted = positions.slice().sort((a, b) => a - b);
-            const first = sorted[0];
-            const last = sorted[sorted.length - 1] + 1;
-            const savedStart = textarea.selectionStart;
-            const savedEnd = textarea.selectionEnd;
-
-            textarea.focus();
-            const flashStart = first;
-            const flashEnd = last - first <= FLASH_MAX_SPAN ? last : first + 1;
-            textarea.setSelectionRange(flashStart, flashEnd);
-
-            setTimeout(() => {
-                if (textarea.selectionStart === flashStart
-                    && textarea.selectionEnd === flashEnd) {
-                    try { textarea.setSelectionRange(savedStart, savedEnd); }
-                    catch { /* ignore */ }
-                }
-            }, FLASH_DURATION);
-        } catch (err) {
-            console.warn(LOG, 'selection flash failed:', err);
-        }
-    }
-
-    // --- Flash: overlay + selection (glow removed) ---
-    function flashPositions(textarea, positions) {
-        if (!positions.length) return;
-        flashOverlay(textarea, positions);
-        flashSelection(textarea, positions);
-    }
-
-    // --- Interceptor ---
     let lastBlockedAt = 0;
 
     function block(e, message) {
@@ -261,7 +326,7 @@
             const unmatched = findUnmatchedQuotePositions(value);
             if (unmatched.length) {
                 block(e, 'Unclosed double quote detected — message not sent.');
-                try { flashPositions(textarea, unmatched); }
+                try { flashAlert(unmatched); }
                 catch (err) { console.warn(LOG, 'flash failed:', err); }
                 return;
             }
@@ -269,7 +334,7 @@
             const empty = findEmptyQuotePositions(value);
             if (empty.length) {
                 block(e, 'Empty quotes detected — message not sent.');
-                try { flashPositions(textarea, empty); }
+                try { flashAlert(empty); }
                 catch (err) { console.warn(LOG, 'flash failed:', err); }
                 return;
             }
@@ -278,12 +343,13 @@
         }
     }
 
-    // --- State ---
-    let initialised = false;
+    // ────────────────────────────────────────────────────────────
+    // Button attach + observer
+    // ────────────────────────────────────────────────────────────
+
     let attachedButton = null;
     let observer = null;
 
-    // --- Attach ---
     function attachToButton(btn) {
         if (!btn || btn === attachedButton) return;
         attachedButton = btn;
@@ -294,7 +360,6 @@
         console.log(`${LOG} interceptors attached to send button.`);
     }
 
-    // --- Observer lifecycle ---
     function ensureObserver() {
         if (observer || !document.body) return;
         observer = new MutationObserver(() => {
@@ -309,47 +374,57 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // --- Rearm if the button was replaced ---
-    function rearmIfDetached() {
-        if (attachedButton && !attachedButton.isConnected) {
-            attachedButton = null;
-        }
+    // ────────────────────────────────────────────────────────────
+    // Init / watchdog
+    // ────────────────────────────────────────────────────────────
+
+    let initialised = false;
+
+    function watchdog() {
+        if (attachedButton && !attachedButton.isConnected) attachedButton = null;
         if (!attachedButton) {
-            ensureObserver();
+            const btn = findSendButton();
+            if (btn) attachToButton(btn);
+            else ensureObserver();
+        }
+        if (!textareaEl || !textareaEl.isConnected) {
+            attachToTextarea();
+        }
+        if (!overlayEl || !overlayEl.isConnected) {
+            ensureOverlay();
+            applyOverlayTextStyle();
+            applyOverlayGeometry();
+            renderOverlay();
         }
     }
 
-    // --- Init (idempotent) ---
     function init() {
         if (initialised) return;
         initialised = true;
-
         console.log(`${LOG} init starting...`);
 
-        try { injectFlashStyle(); }
-        catch (err) { console.warn(LOG, 'injectFlashStyle threw:', err); }
+        try { injectStyle(); } catch (e) { console.warn(LOG, 'injectStyle failed:', e); }
+        try { attachToTextarea(); } catch (e) { console.warn(LOG, 'attachToTextarea failed:', e); }
 
         try {
             const btn = findSendButton();
-            console.log(`${LOG} findSendButton →`, btn);
-            if (btn) {
-                attachToButton(btn);
-            } else {
+            if (btn) attachToButton(btn);
+            else {
                 console.log(`${LOG} button not found, arming observer.`);
                 ensureObserver();
             }
-        } catch (err) {
-            console.error(LOG, 'button attach failed:', err);
-        }
+        } catch (e) { console.warn(LOG, 'button attach failed:', e); }
 
         try {
-            window.addEventListener('orientationchange', () => {
-                setTimeout(rearmIfDetached, 500);
-            });
-            setInterval(rearmIfDetached, 2000);
-        } catch (err) {
-            console.warn(LOG, 'watchdog setup failed:', err);
-        }
+            window.addEventListener('resize', reposition);
+            window.addEventListener('orientationchange', () => setTimeout(reposition, 150));
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', reposition);
+            }
+        } catch (e) { console.warn(LOG, 'position listeners failed:', e); }
+
+        setTimeout(reposition, 500);
+        setInterval(watchdog, 2000);
 
         console.log(`✅ ${LOG} ready.`);
     }
