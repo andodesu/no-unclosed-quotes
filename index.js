@@ -39,9 +39,9 @@
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
                 // Fallback for WebViews without color-mix().
-                '  background-color: rgba(204, 51, 51, 0.25);',
-                // Tint the error red at 25% opacity where supported.
-                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 25%, transparent);',
+                '  background-color: rgba(204, 51, 51, 0.35);',
+                // Tint the error red at 35% opacity where supported.
+                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 35%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 '@keyframes quoteGuardFade {',
