@@ -5,8 +5,8 @@
     const FLASH_DURATION = 900;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
-    const NOTIFY_COOLDOWN_MS = 2500;
-    const TOAST_DURATION_MS = 2000;
+    const NOTIFY_COOLDOWN_MS = 2000;
+    const TOAST_DURATION_MS = 1750;
 
     // --- Style injection ---
     function injectFlashStyle() {
