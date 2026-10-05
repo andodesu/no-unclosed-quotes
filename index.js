@@ -3,7 +3,6 @@
 
     const LOG = '[QuoteGuard]';
     const FLASH_DURATION = 900;
-    const FLASH_MAX_SPAN = 40;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
 
@@ -214,37 +213,10 @@
         }, FLASH_DURATION);
     }
 
-    // --- Flash: native selection (works on standard browsers, no-op in Tauri) ---
-    function flashSelection(textarea, positions) {
-        try {
-            const sorted = positions.slice().sort((a, b) => a - b);
-            const first = sorted[0];
-            const last = sorted[sorted.length - 1] + 1;
-            const savedStart = textarea.selectionStart;
-            const savedEnd = textarea.selectionEnd;
-
-            textarea.focus();
-            const flashStart = first;
-            const flashEnd = last - first <= FLASH_MAX_SPAN ? last : first + 1;
-            textarea.setSelectionRange(flashStart, flashEnd);
-
-            setTimeout(() => {
-                if (textarea.selectionStart === flashStart
-                    && textarea.selectionEnd === flashEnd) {
-                    try { textarea.setSelectionRange(savedStart, savedEnd); }
-                    catch { /* ignore */ }
-                }
-            }, FLASH_DURATION);
-        } catch (err) {
-            console.warn(LOG, 'selection flash failed:', err);
-        }
-    }
-
-    // --- Flash: overlay + selection ---
+    // --- Flash: overlay only ---
     function flashPositions(textarea, positions) {
         if (!positions.length) return;
         flashOverlay(textarea, positions);
-        flashSelection(textarea, positions);
     }
 
     // --- Interceptor ---
