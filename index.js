@@ -1,34 +1,36 @@
 (function() {
     'use strict';
 
-    // ============================================================
-    // Quote Guard — TauriTavern / SillyTavern
-    // Blocks the Send button BEFORE the message is added to chat,
-    // and briefly highlights the offending quotes in the textarea.
-    // ============================================================
-
     const LOG = '[QuoteGuard]';
     const FLASH_DURATION = 900;
     const FLASH_MAX_SPAN = 40;
 
-    // --- Style injection (must come after FLASH_DURATION) ---
-    (function injectFlashStyle() {
-        if (document.getElementById('quote-guard-style')) return;
-        const style = document.createElement('style');
-        style.id = 'quote-guard-style';
-        style.textContent = `
-            @keyframes quoteGuardFlash {
-                0%   { outline-color: rgba(220, 60, 60, 0.9); }
-                100% { outline-color: rgba(220, 60, 60, 0); }
-            }
-            #send_textarea.quote-guard-flash {
-                outline: 3px solid rgba(220, 60, 60, 0.9);
-                outline-offset: 2px;
-                animation: quoteGuardFlash ${FLASH_DURATION}ms ease-out forwards;
-            }
-        `;
-        document.head.appendChild(style);
-    })();
+    // --- Style injection (deferred, defensive) ---
+    function injectFlashStyle() {
+        try {
+            if (document.getElementById('quote-guard-style')) return true;
+            const head = document.head || document.getElementsByTagName('head')[0];
+            if (!head) return false;
+            const style = document.createElement('style');
+            style.id = 'quote-guard-style';
+            style.textContent = [
+                '@keyframes quoteGuardFlash {',
+                '  0%   { outline-color: rgba(220, 60, 60, 0.9); }',
+                '  100% { outline-color: rgba(220, 60, 60, 0); }',
+                '}',
+                '#send_textarea.quote-guard-flash {',
+                '  outline: 3px solid rgba(220, 60, 60, 0.9);',
+                '  outline-offset: 2px;',
+                `  animation: quoteGuardFlash ${FLASH_DURATION}ms ease-out forwards;`,
+                '}',
+            ].join('\n');
+            head.appendChild(style);
+            return true;
+        } catch (err) {
+            console.warn(LOG, 'style injection failed:', err);
+            return false;
+        }
+    }
 
     // --- Context ---
     function getContext() {
@@ -162,22 +164,28 @@
     }
 
     function intercept(e) {
-        const textarea = document.querySelector('#send_textarea');
-        if (!textarea) return;
-        const value = textarea.value;
+        try {
+            const textarea = document.querySelector('#send_textarea');
+            if (!textarea) return;
+            const value = textarea.value;
 
-        const unmatched = findUnmatchedQuotePositions(value);
-        if (unmatched.length) {
-            block(e, 'Unclosed double quote detected — message not sent.');
-            flashPositions(textarea, unmatched);
-            return;
-        }
+            const unmatched = findUnmatchedQuotePositions(value);
+            if (unmatched.length) {
+                block(e, 'Unclosed double quote detected — message not sent.');
+                try { flashPositions(textarea, unmatched); }
+                catch (err) { console.warn(LOG, 'flash failed:', err); }
+                return;
+            }
 
-        const empty = findEmptyQuotePositions(value);
-        if (empty.length) {
-            block(e, 'Empty quotes detected — message not sent.');
-            flashPositions(textarea, empty);
-            return;
+            const empty = findEmptyQuotePositions(value);
+            if (empty.length) {
+                block(e, 'Empty quotes detected — message not sent.');
+                try { flashPositions(textarea, empty); }
+                catch (err) { console.warn(LOG, 'flash failed:', err); }
+                return;
+            }
+        } catch (err) {
+            console.error(LOG, 'intercept error:', err);
         }
     }
 
@@ -227,23 +235,41 @@
         if (initialised) return;
         initialised = true;
 
-        const btn = findSendButton();
-        if (btn) {
-            attachToButton(btn);
-        } else {
-            ensureObserver();
+        console.log(`${LOG} init starting...`);
+
+        try { injectFlashStyle(); }
+        catch (err) { console.warn(LOG, 'injectFlashStyle threw:', err); }
+
+        try {
+            const btn = findSendButton();
+            console.log(`${LOG} findSendButton →`, btn);
+            if (btn) {
+                attachToButton(btn);
+            } else {
+                console.log(`${LOG} button not found, arming observer.`);
+                ensureObserver();
+            }
+        } catch (err) {
+            console.error(LOG, 'button attach failed:', err);
         }
 
-        window.addEventListener('orientationchange', () => {
-            setTimeout(rearmIfDetached, 500);
-        });
-
-        setInterval(rearmIfDetached, 2000);
+        try {
+            window.addEventListener('orientationchange', () => {
+                setTimeout(rearmIfDetached, 500);
+            });
+            setInterval(rearmIfDetached, 2000);
+        } catch (err) {
+            console.warn(LOG, 'watchdog setup failed:', err);
+        }
 
         console.log(`✅ ${LOG} ready.`);
     }
 
-    init();
+    try {
+        init();
+    } catch (err) {
+        console.error(LOG, 'init failed:', err);
+    }
 
     document.addEventListener('SillyTavernReady', init);
 })();
