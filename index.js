@@ -5,7 +5,8 @@
     const FLASH_DURATION = 900;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
-    const NOTIFY_COOLDOWN_MS = 2500;
+    const NOTIFY_COOLDOWN_MS = 3000;
+    const TOAST_DURATION_MS = 1500;
 
     // --- Style injection ---
     function injectFlashStyle() {
@@ -68,12 +69,27 @@
     }
 
     // --- Notification ---
+    // Call toastr directly so we can set an explicit duration.
+    // context.toast() gives no options and uses toastr's global
+    // default (typically 5 s), which is too long for our purpose.
     function notify(msg) {
+        try {
+            if (typeof window.toastr?.error === 'function') {
+                window.toastr.error(msg, '', {
+                    timeOut: TOAST_DURATION_MS,
+                    extendedTimeOut: 0,
+                    closeButton: false,
+                });
+                return;
+            }
+        } catch { /* fall through */ }
+
+        // Fallback: ST's context.toast (no duration control).
         const ctx = getContext();
         try {
             if (typeof ctx?.toast === 'function') { ctx.toast(msg, 'error'); return; }
-            if (typeof window.toastr?.error === 'function') { window.toastr.error(msg); return; }
         } catch { /* ignore */ }
+
         console.warn(LOG, msg);
     }
 
