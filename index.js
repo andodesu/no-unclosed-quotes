@@ -8,7 +8,7 @@
     const ALERT_CLASS = 'quote-guard-alert';
 
     // ────────────────────────────────────────────────────────────
-    // Style injection
+    // Style
     // ────────────────────────────────────────────────────────────
 
     function injectStyle() {
@@ -23,17 +23,16 @@
                 '  position: fixed;',
                 '  pointer-events: none;',
                 '  overflow: hidden;',
-                '  z-index: 3;',
+                '  z-index: 999999;',
                 '  white-space: pre-wrap;',
                 '  word-wrap: break-word;',
                 '  overflow-wrap: break-word;',
                 '  color: transparent;',
                 '  background: transparent;',
-                '  mix-blend-mode: multiply;',
                 '}',
                 `.${QUOTED_CLASS} {`,
                 '  background-color: rgba(220, 60, 60, 0.22);',
-                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 22%, transparent);',
+                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 28%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 `.${ALERT_CLASS} {`,
@@ -86,10 +85,6 @@
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    // Returns { ranges, unmatched }.
-    // ranges:    interiors of quoted regions. Balanced pairs give a bounded
-    //            range; an unclosed opening quote gives a range to EOT.
-    // unmatched: positions of unclosed opening quote marks.
     function scanQuotes(text) {
         const ranges = [];
         const unmatched = [];
@@ -119,9 +114,7 @@
     function buildOverlayHtml(text, alertPositions) {
         const { ranges } = scanQuotes(text);
         const marks = [];
-        for (const r of ranges) {
-            marks.push({ start: r.start, end: r.end, cls: QUOTED_CLASS });
-        }
+        for (const r of ranges) marks.push({ start: r.start, end: r.end, cls: QUOTED_CLASS });
         if (alertPositions && alertPositions.length) {
             for (const p of alertPositions) {
                 marks.push({ start: p, end: p + 1, cls: ALERT_CLASS });
@@ -163,7 +156,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // Overlay: the live tinted mirror
+    // Overlay
     // ────────────────────────────────────────────────────────────
 
     let overlayEl = null;
@@ -171,6 +164,7 @@
     let alertTimer = null;
     let alertPositions = null;
     let resizeObserver = null;
+    let attrObserver = null;
 
     function ensureOverlay() {
         if (overlayEl && overlayEl.isConnected) return overlayEl;
@@ -221,6 +215,16 @@
         overlayEl.scrollLeft = textareaEl.scrollLeft;
     }
 
+    function reposition() {
+        applyOverlayGeometry();
+    }
+
+    function refreshAll() {
+        applyOverlayTextStyle();
+        applyOverlayGeometry();
+        renderOverlay();
+    }
+
     function onInput() {
         if (alertTimer) {
             clearTimeout(alertTimer);
@@ -236,8 +240,25 @@
         overlayEl.scrollLeft = textareaEl.scrollLeft;
     }
 
-    function reposition() {
-        applyOverlayGeometry();
+    // Diagnostic — logs what the textarea looks like on focus.
+    function logFocusState() {
+        if (!textareaEl) return;
+        try {
+            const cs = getComputedStyle(textareaEl);
+            console.log(`${LOG} textarea focus state:`, {
+                background: cs.backgroundColor,
+                position: cs.position,
+                zIndex: cs.zIndex,
+                transform: cs.transform,
+                filter: cs.filter,
+                parentPosition: textareaEl.parentElement
+                    ? getComputedStyle(textareaEl.parentElement).position
+                    : null,
+                parentZ: textareaEl.parentElement
+                    ? getComputedStyle(textareaEl.parentElement).zIndex
+                    : null,
+            });
+        } catch { /* ignore */ }
     }
 
     function flashAlert(positions) {
@@ -256,23 +277,49 @@
         if (!el) return false;
         if (el === textareaEl && el.isConnected) return true;
 
+        // Clean up previous.
+        if (textareaEl) {
+            try {
+                textareaEl.removeEventListener('input', onInput);
+                textareaEl.removeEventListener('scroll', onScroll);
+                textareaEl.removeEventListener('focus', onFocus);
+                textareaEl.removeEventListener('blur', onBlur);
+                textareaEl.removeEventListener('focusin', onFocus);
+            } catch { /* ignore */ }
+        }
+        if (attrObserver) {
+            try { attrObserver.disconnect(); } catch { /* ignore */ }
+            attrObserver = null;
+        }
+
         textareaEl = el;
         textareaEl.addEventListener('input', onInput);
         textareaEl.addEventListener('scroll', onScroll, { passive: true });
-        textareaEl.addEventListener('focus', reposition);
+        textareaEl.addEventListener('focus', onFocus, true);
+        textareaEl.addEventListener('focusin', onFocus, true);
+        textareaEl.addEventListener('blur', onBlur, true);
 
         ensureOverlay();
-        applyOverlayTextStyle();
-        applyOverlayGeometry();
-        renderOverlay();
+        refreshAll();
 
-        if (resizeObserver) resizeObserver.disconnect();
+        // Re-apply everything when the theme changes attributes on focus.
         try {
-            resizeObserver = new ResizeObserver(() => {
-                applyOverlayTextStyle();
-                applyOverlayGeometry();
-                renderOverlay();
+            attrObserver = new MutationObserver(() => {
+                refreshAll();
             });
+            attrObserver.observe(textareaEl, {
+                attributes: true,
+                attributeFilter: ['class', 'style'],
+            });
+        } catch (err) {
+            console.warn(LOG, 'attribute observer failed:', err);
+        }
+
+        if (resizeObserver) {
+            try { resizeObserver.disconnect(); } catch { /* ignore */ }
+        }
+        try {
+            resizeObserver = new ResizeObserver(refreshAll);
             resizeObserver.observe(textareaEl);
         } catch (err) {
             console.warn(LOG, 'ResizeObserver unavailable:', err);
@@ -280,6 +327,20 @@
 
         console.log(`${LOG} overlay attached to textarea.`);
         return true;
+    }
+
+    function onFocus() {
+        logFocusState();
+        // The theme may apply a focus style this frame; re-apply on the
+        // next two frames as well so we win the style race.
+        requestAnimationFrame(() => {
+            refreshAll();
+            requestAnimationFrame(refreshAll);
+        });
+    }
+
+    function onBlur() {
+        requestAnimationFrame(refreshAll);
     }
 
     // ────────────────────────────────────────────────────────────
@@ -392,9 +453,7 @@
         }
         if (!overlayEl || !overlayEl.isConnected) {
             ensureOverlay();
-            applyOverlayTextStyle();
-            applyOverlayGeometry();
-            renderOverlay();
+            refreshAll();
         }
     }
 
@@ -418,8 +477,10 @@
         try {
             window.addEventListener('resize', reposition);
             window.addEventListener('orientationchange', () => setTimeout(reposition, 150));
+            window.addEventListener('scroll', reposition, true);
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', reposition);
+                window.visualViewport.addEventListener('scroll', reposition);
             }
         } catch (e) { console.warn(LOG, 'position listeners failed:', e); }
 
