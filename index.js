@@ -26,14 +26,16 @@
     }
 
     // --- Quote check ---
+    // Treats straight, curly, low-9, high-reversed-9, and guillemet
+    // double quotes as one family. Escaped straight quotes (\" ) are
+    // stripped first; curly quotes are not escaped in practice.
+    const DOUBLE_QUOTE_CHARS = /[\u0022\u201C\u201D\u201E\u201F\u00AB\u00BB]/g;
+
     function hasUnbalancedDoubleQuotes(text) {
         if (typeof text !== 'string' || text.length === 0) return false;
         const cleaned = text.replace(/\\"/g, '');
-        let count = 0;
-        for (let i = 0; i < cleaned.length; i++) {
-            if (cleaned.charCodeAt(i) === 0x22) count++;
-        }
-        return count % 2 !== 0;
+        const matches = cleaned.match(DOUBLE_QUOTE_CHARS);
+        return matches !== null && matches.length % 2 !== 0;
     }
 
     // --- Send-button finder ---
@@ -137,7 +139,6 @@
 
     // ST extensions load after DOMContentLoaded, so readyState is
     // always 'interactive' or 'complete' by the time this IIFE runs.
-    // The DOMContentLoaded branch was dead code.
     init();
 
     // Idempotent: no-op if init already ran.
