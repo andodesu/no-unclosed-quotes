@@ -1,35 +1,62 @@
-import { eventSource, event_types } from '../../../script.js';
-import { getContext } from '../../extensions.js';
+// index.js — no imports, no exports
+(function () {
+    'use strict';
 
-// Helper: count occurrences of a character in a string
-function countChar(str, char) {
-    return (str.match(new RegExp(char, 'g')) || []).length;
-}
+    function init() {
+        // Wait until ST has finished booting and the global context is ready
+        if (typeof SillyTavern === 'undefined' || typeof SillyTavern.getContext !== 'function') {
+            setTimeout(init, 200);
+            return;
+        }
 
-// Handler for the MESSAGE_SENT event
-async function onMessageSent(messageIndex) {
-    const context = getContext();
-    const message = context.chat[messageIndex];
+        const context = SillyTavern.getContext();
+        const { eventSource, event_types } = context;
 
-    // Only validate user messages (not AI messages)
-    if (message.is_user !== true) return;
+        if (!eventSource || !event_types) {
+            console.error('[Quote Guard] eventSource / event_types not available on context');
+            return;
+        }
 
-    const text = message.mes;
-    const quoteCount = countChar(text, '"');
+        // --- your logic here ---
 
-    // If quotes are unbalanced, block the message
-    if (quoteCount % 2 !== 0) {
-        // 1️⃣ Notify the user
-        toastr.error('Your message contains an unclosed double quote. Please fix it before sending.');
+        function hasUnbalancedDoubleQuotes(text) {
+            const cleaned = text.replace(/\\"/g, '');
+            return ((cleaned.match(/"/g) || []).length % 2) !== 0;
+        }
 
-        // 2️⃣ Stop the AI generation that would normally follow
-        context.stopGeneration();
+        function blockSend(e) {
+            const textarea = document.querySelector('#send_textarea');
+            if (!textarea) return;
+            if (hasUnbalancedDoubleQuotes(textarea.value)) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                if (typeof toastr !== 'undefined') {
+                    toastr.error('Unclosed double quote detected — message not sent.');
+                }
+            }
+        }
 
-        // 3️⃣ (Optional) Remove the invalid message from the chat
-        // context.chat.splice(messageIndex, 1);
-        // context.saveChat();   // Uncomment if you want to save the change
+        // Attach capture-phase listener to the send form
+        const form = document.querySelector('#send_form');
+        if (form) {
+            form.addEventListener('submit', blockSend, true);
+        }
+
+        // Safety net for Enter key on older builds
+        const textarea = document.querySelector('#send_textarea');
+        if (textarea) {
+            textarea.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && !e.shiftKey) blockSend(e);
+            }, true);
+        }
+
+        console.log('[Quote Guard] loaded successfully');
     }
-}
 
-// Subscribe to the event when the extension is loaded
-eventSource.on(event_types.MESSAGE_SENT, onMessageSent);
+    // Kick off once jQuery has fired ready, or immediately if already ready
+    if (typeof jQuery !== 'undefined') {
+        jQuery(init);
+    } else {
+        init();
+    }
+})();
