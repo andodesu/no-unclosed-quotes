@@ -37,10 +37,9 @@
                 '  caret-color: transparent !important;',
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
-                // Fallback for WebViews without color-mix().
-                '  background-color: rgba(220, 60, 60, 0.45);',
-                // Tint using SillyTavern's theme quote colour at 45% opacity.
-                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 45%, transparent);',
+                // Matches SillyTavern's error toast colour (--fullred),
+                // with a hardcoded fallback of ST's default error red.
+                '  background-color: var(--fullred, #cc3333);',
                 '  border-radius: 2px;',
                 '}',
                 '@keyframes quoteGuardFade {',
@@ -370,4 +369,4 @@
     }
 
     document.addEventListener('SillyTavernReady', init);
-})();
+})();s
