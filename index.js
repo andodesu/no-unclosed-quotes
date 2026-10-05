@@ -2,20 +2,21 @@
     'use strict';
 
     // ============================================================
-    // SillyTavern Extension: Quote Guard
-    // Blocks the send button on desktop *and* mobile if the
-    // message has an unclosed double quote. The Enter key is
-    // deliberately left alone so Android can keep its newline.
+    // Quote Guard — TauriTavern / SillyTavern
+    // Blocks the Send button BEFORE the message is added to chat.
+    // No MESSAGE_SENT, no stopGeneration, no cleanup.
     // ============================================================
 
     const LOG = '[QuoteGuard]';
 
     // --- Context ---
     function getContext() {
-        return window.SillyTavern?.getContext() || null;
+        return window.SillyTavern?.getContext()
+            || window.getContext?.()
+            || null;
     }
 
-    // --- Toast ---
+    // --- Notification ---
     function notify(msg) {
         const ctx = getContext();
         try {
@@ -36,34 +37,27 @@
         return count % 2 !== 0;
     }
 
-    // --- Send-button detection (desktop + mobile) ---
-    // We match any element that looks like the send button.
-    function isSendButton(el) {
-        if (!el) return false;
-        // Desktop: #send_but
-        if (el.id === 'send_but') return true;
-        // Mobile / alt builds: class-based or data-attribute
-        if (el.classList?.contains('send_but')) return true;
-        if (el.classList?.contains('st-send-button')) return true;
-        if (el.dataset?.testid === 'send-button') return true;
-        // Fallback: any <button type="submit"> inside the chat form
-        if (el.tagName === 'BUTTON' && el.type === 'submit') return true;
-        return false;
+    // --- Send-button finder (desktop + mobile variants) ---
+    function findSendButton() {
+        // Try the common selectors in order of specificity.
+        const candidates = [
+            '#send_but',
+            '.send_but',
+            '.st-send-button',
+            '[data-testid="send-button"]',
+            'button[type="submit"]',
+        ];
+        for (const sel of candidates) {
+            const el = document.querySelector(sel);
+            if (el) return el;
+        }
+        return null;
     }
 
-    // --- Interceptor ---
+    // --- The interceptor (attached directly to the button) ---
     let lastBlockedAt = 0;
 
     function intercept(e) {
-        // Walk up from the event target to find the button.
-        let node = e.target;
-        let btn = null;
-        while (node && node !== document) {
-            if (isSendButton(node)) { btn = node; break; }
-            node = node.parentElement;
-        }
-        if (!btn) return;
-
         const textarea = document.querySelector('#send_textarea');
         if (!textarea) return;
         if (!hasUnbalancedDoubleQuotes(textarea.value)) return;
@@ -73,7 +67,6 @@
         e.stopImmediatePropagation();
         e.stopPropagation();
 
-        // Throttle so touchstart + touchend + click don't triple-toast.
         const now = Date.now();
         if (now - lastBlockedAt > 300) {
             lastBlockedAt = now;
@@ -81,53 +74,57 @@
         }
     }
 
-    // --- Setup ---
-    function setup() {
-        if (document.body?.dataset.quoteGuardAttached) return true;
+    // --- Attach listeners directly to the button ---
+    let attachedButton = null;
 
-        // Capture phase on document so we always run first.
-        // Cover every event family a mobile browser might use.
-        document.addEventListener('pointerdown', intercept, true);
-        document.addEventListener('touchstart', intercept, true);
-        document.addEventListener('touchend', intercept, true);
-        document.addEventListener('click', intercept, true);
+    function attachToButton(btn) {
+        if (btn === attachedButton) return; // already done
+        attachedButton = btn;
 
-        if (document.body) {
-            document.body.dataset.quoteGuardAttached = 'true';
-        }
-        console.log(`${LOG} listeners attached.`);
-        return true;
+        // Capture phase on the button itself — fires before any
+        // listener ST has bound to the same element, and before
+        // the event bubbles up to document.
+        btn.addEventListener('pointerdown', intercept, true);
+        btn.addEventListener('touchstart', intercept, true);
+        btn.addEventListener('touchend', intercept, true);
+        btn.addEventListener('click', intercept, true);
+        console.log(`${LOG} interceptors attached to send button.`);
     }
 
-    // --- Init with retry loop ---
-    let attempts = 0;
-    let interval = null;
+    // --- MutationObserver: catch the button whenever it appears ---
+    function observeForSendButton() {
+        const tryAttach = () => {
+            const btn = findSendButton();
+            if (btn) attachToButton(btn);
+        };
 
+        // Initial attempt.
+        tryAttach();
+
+        // Watch for DOM changes (ST may re-render the input area,
+        // especially on mobile orientation changes).
+        const observer = new MutationObserver(() => {
+            tryAttach();
+        });
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    // --- Init ---
     function init() {
-        if (interval) clearInterval(interval);
-        interval = setInterval(() => {
-            attempts++;
-            try {
-                if (setup()) {
-                    clearInterval(interval);
-                    interval = null;
-                    console.log(`✅ ${LOG} ready.`);
-                } else if (attempts >= 30) {
-                    clearInterval(interval);
-                    interval = null;
-                    console.error(`❌ ${LOG} failed to initialise.`);
-                }
-            } catch (err) {
-                console.error(LOG, 'init error:', err);
-            }
-        }, 1000);
+        observeForSendButton();
+        console.log(`✅ ${LOG} ready.`);
     }
 
+    // Boot after DOM is ready.
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         init();
     } else {
         document.addEventListener('DOMContentLoaded', init);
     }
 
+    // Re-arm after ST fully boots (TauriTavern may load later).
     document.addEventListener('SillyTavernReady', () => setTimeout(init, 500));
 })();
