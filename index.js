@@ -23,17 +23,16 @@
                 '  position: fixed;',
                 '  pointer-events: none;',
                 '  overflow: hidden;',
-                '  z-index: 3;',
+                '  z-index: 9999;',
                 '  white-space: pre-wrap;',
                 '  word-wrap: break-word;',
                 '  overflow-wrap: break-word;',
                 '  color: transparent;',
                 '  background: transparent;',
-                '  mix-blend-mode: multiply;',
                 '}',
                 `.${QUOTED_CLASS} {`,
-                '  background-color: rgba(220, 60, 60, 0.22);',
-                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 22%, transparent);',
+                '  background-color: rgba(220, 60, 60, 0.30);',
+                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 30%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 `.${ALERT_CLASS} {`,
@@ -86,10 +85,6 @@
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    // Returns { ranges, unmatched }.
-    // ranges:    interiors of quoted regions. Balanced pairs give a bounded
-    //            range; an unclosed opening quote gives a range to EOT.
-    // unmatched: positions of unclosed opening quote marks.
     function scanQuotes(text) {
         const ranges = [];
         const unmatched = [];
@@ -163,7 +158,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // Overlay: the live tinted mirror
+    // Overlay
     // ────────────────────────────────────────────────────────────
 
     let overlayEl = null;
@@ -237,7 +232,18 @@
     }
 
     function reposition() {
+        applyOverlayTextStyle();
         applyOverlayGeometry();
+    }
+
+    // Focus can trigger a background/geometry change in ST or a
+    // soft-keyboard-driven layout shift on mobile. Reposition on a
+    // few timeouts to catch whatever settles last.
+    function onFocus() {
+        reposition();
+        setTimeout(reposition, 60);
+        setTimeout(reposition, 200);
+        setTimeout(reposition, 400);
     }
 
     function flashAlert(positions) {
@@ -256,10 +262,16 @@
         if (!el) return false;
         if (el === textareaEl && el.isConnected) return true;
 
+        if (textareaEl) {
+            textareaEl.removeEventListener('input', onInput);
+            textareaEl.removeEventListener('scroll', onScroll);
+            textareaEl.removeEventListener('focus', onFocus);
+        }
+
         textareaEl = el;
         textareaEl.addEventListener('input', onInput);
         textareaEl.addEventListener('scroll', onScroll, { passive: true });
-        textareaEl.addEventListener('focus', reposition);
+        textareaEl.addEventListener('focus', onFocus);
 
         ensureOverlay();
         applyOverlayTextStyle();
@@ -417,9 +429,13 @@
 
         try {
             window.addEventListener('resize', reposition);
-            window.addEventListener('orientationchange', () => setTimeout(reposition, 150));
+            window.addEventListener('orientationchange', () => {
+                setTimeout(reposition, 100);
+                setTimeout(reposition, 400);
+            });
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', reposition);
+                window.visualViewport.addEventListener('scroll', reposition);
             }
         } catch (e) { console.warn(LOG, 'position listeners failed:', e); }
 
