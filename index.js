@@ -39,9 +39,9 @@
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
                 // Fallback for WebViews without color-mix().
-                '  background-color: rgba(204, 51, 51, 0.35);',
-                // Tint the error red at 35% opacity where supported.
-                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 35%, transparent);',
+                '  background-color: rgba(204, 51, 51, 0.5);',
+                // Tint the error red at 50% opacity where supported.
+                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 50%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 '@keyframes quoteGuardFade {',
@@ -231,6 +231,8 @@
     }
 
     // --- Flash: overlay only ---
+    let lastFlashedAt = 0;
+
     function flashPositions(textarea, positions) {
         if (!positions.length) return;
         const now = Date.now();
@@ -241,7 +243,6 @@
 
     // --- Interceptor ---
     let lastNotifiedAt = 0;
-    let lastFlashedAt = 0;
 
     function block(e, message) {
         e.preventDefault();
@@ -268,7 +269,7 @@
                 return;
             }
 
-            const empty = findEmptyQuotePositions(value);
+            const empty = findEmptyQuotePositions(text);
             if (empty.length) {
                 block(e, 'Empty double quotes');
                 try { flashPositions(textarea, empty); }
