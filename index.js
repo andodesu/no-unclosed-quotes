@@ -2,7 +2,7 @@
     'use strict';
 
     const LOG = '[QuoteGuard]';
-    const FLASH_DURATION = 1750;
+    const FLASH_DURATION = 1200;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
     const NOTIFY_COOLDOWN_MS = 2000;
