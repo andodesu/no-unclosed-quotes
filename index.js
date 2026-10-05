@@ -4,7 +4,6 @@
     // ============================================================
     // Quote Guard — TauriTavern / SillyTavern
     // Blocks the Send button BEFORE the message is added to chat.
-    // No MESSAGE_SENT, no stopGeneration, no cleanup.
     // ============================================================
 
     const LOG = '[QuoteGuard]';
@@ -37,7 +36,7 @@
         return count % 2 !== 0;
     }
 
-    // --- Send-button finder (desktop + mobile variants) ---
+    // --- Send-button finder ---
     function findSendButton() {
         const candidates = [
             '#send_but',
@@ -53,7 +52,7 @@
         return null;
     }
 
-    // --- The interceptor ---
+    // --- Interceptor ---
     let lastBlockedAt = 0;
 
     function intercept(e) {
@@ -76,9 +75,8 @@
     let initialised = false;
     let attachedButton = null;
     let observer = null;
-    let rearmTimer = null;
 
-    // --- Attach listeners directly to the button ---
+    // --- Attach ---
     function attachToButton(btn) {
         if (!btn || btn === attachedButton) return;
         attachedButton = btn;
@@ -90,10 +88,8 @@
     }
 
     // --- Observer lifecycle ---
-    // Created only when we don't have a live button. Disconnects
-    // itself the moment we successfully attach to a connected one.
     function ensureObserver() {
-        if (observer) return;
+        if (observer || !document.body) return;
         observer = new MutationObserver(() => {
             const btn = findSendButton();
             if (!btn) return;
@@ -106,9 +102,12 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    function checkButtonAlive() {
+    // --- Rearm if the button was replaced ---
+    function rearmIfDetached() {
         if (attachedButton && !attachedButton.isConnected) {
             attachedButton = null;
+        }
+        if (!attachedButton) {
             ensureObserver();
         }
     }
@@ -126,31 +125,21 @@
         }
 
         // Mobile orientation changes rebuild the input area.
-        // Wait briefly for the DOM to settle before re-checking.
         window.addEventListener('orientationchange', () => {
-            setTimeout(() => {
-                if (attachedButton && !attachedButton.isConnected) {
-                    attachedButton = null;
-                }
-                if (!attachedButton) ensureObserver();
-            }, 500);
+            setTimeout(rearmIfDetached, 500);
         });
 
-        // Watchdog: catch any other rebuild we didn't anticipate
-        // (theme switch, chat reload, etc.).
-        rearmTimer = setInterval(checkButtonAlive, 2000);
+        // Watchdog for any other rebuild we didn't anticipate.
+        setInterval(rearmIfDetached, 2000);
 
         console.log(`✅ ${LOG} ready.`);
     }
 
-    // Boot after DOM is ready.
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        init();
-    } else {
-        document.addEventListener('DOMContentLoaded', init);
-    }
+    // ST extensions load after DOMContentLoaded, so readyState is
+    // always 'interactive' or 'complete' by the time this IIFE runs.
+    // The DOMContentLoaded branch was dead code.
+    init();
 
-    // Re-arm after ST fully boots (TauriTavern may load later).
-    // init() is now idempotent, so this is a no-op if already run.
-    document.addEventListener('SillyTavernReady', () => setTimeout(init, 500));
+    // Idempotent: no-op if init already ran.
+    document.addEventListener('SillyTavernReady', init);
 })();
