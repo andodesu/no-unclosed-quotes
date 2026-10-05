@@ -3,7 +3,8 @@
 
     // ============================================================
     // Quote Guard — TauriTavern / SillyTavern
-    // Blocks the Send button BEFORE the message is added to chat.
+    // Blocks the Send button BEFORE the message is added to chat,
+    // and briefly highlights the offending quotes in the textarea.
     // ============================================================
 
     const LOG = '[QuoteGuard]';
@@ -25,17 +26,42 @@
         console.warn(LOG, msg);
     }
 
-    // --- Quote check ---
-    // Treats straight, curly, low-9, high-reversed-9, and guillemet
-    // double quotes as one family. Escaped straight quotes (\" ) are
-    // stripped first; curly quotes are not escaped in practice.
-    const DOUBLE_QUOTE_CHARS = /[\u0022\u201C\u201D\u201E\u201F\u00AB\u00BB]/g;
+    // --- Quote helpers ---
+    function isDoubleQuote(ch) {
+        return ch === '"'
+            || ch === '\u201C' || ch === '\u201D'
+            || ch === '\u201E' || ch === '\u201F'
+            || ch === '\u00AB' || ch === '\u00BB';
+    }
 
-    function hasUnbalancedDoubleQuotes(text) {
-        if (typeof text !== 'string' || text.length === 0) return false;
-        const cleaned = text.replace(/\\"/g, '');
-        const matches = cleaned.match(DOUBLE_QUOTE_CHARS);
-        return matches !== null && matches.length % 2 !== 0;
+    // Returns positions of quotes that never found a partner.
+    // Greedy left-to-right pairing: first quote opens, next closes, etc.
+    // Escaped \" is skipped (treated as literal, not a quote).
+    function findUnmatchedQuotePositions(text) {
+        const stack = [];
+        for (let i = 0; i < text.length; i++) {
+            const ch = text[i];
+            if (ch === '\\' && text[i + 1] === '"') { i++; continue; }
+            if (!isDoubleQuote(ch)) continue;
+            if (stack.length > 0) stack.pop();
+            else stack.push(i);
+        }
+        return stack;
+    }
+
+    // Returns positions of adjacent quote pairs ("" or "").
+    function findEmptyQuotePositions(text) {
+        const positions = [];
+        for (let i = 0; i < text.length - 1; i++) {
+            const ch = text[i];
+            if (ch === '\\' && text[i + 1] === '"') { i++; continue; }
+            if (!isDoubleQuote(ch)) continue;
+            if (isDoubleQuote(text[i + 1])) {
+                positions.push(i, i + 1);
+                i++;
+            }
+        }
+        return positions;
     }
 
     // --- Send-button finder ---
@@ -54,22 +80,79 @@
         return null;
     }
 
+    // --- Flash the offending quotes via native selection ---
+    const FLASH_DURATION = 900;
+    const FLASH_MAX_SPAN = 40; // if positions span more than this, only flash the first
+
+    function flashPositions(textarea, positions) {
+        if (!positions.length) return;
+
+        const sorted = positions.slice().sort((a, b) => a - b);
+        const first = sorted[0];
+        const last = sorted[sorted.length - 1] + 1;
+
+        // Save the user's current selection so we can restore it.
+        const savedStart = textarea.selectionStart;
+        const savedEnd = textarea.selectionEnd;
+
+        // Focus the textarea so the selection is actually visible.
+        textarea.focus();
+
+        // If the offending quotes are close together, select the whole span;
+        // otherwise just flash the first one.
+        let flashStart, flashEnd;
+        if (last - first <= FLASH_MAX_SPAN) {
+            flashStart = first;
+            flashEnd = last;
+        } else {
+            flashStart = first;
+            flashEnd = first + 1;
+        }
+        textarea.setSelectionRange(flashStart, flashEnd);
+
+        // Restore the original cursor after the flash, but only if the
+        // user hasn't already started interacting with the textarea.
+        setTimeout(() => {
+            if (textarea.selectionStart === flashStart
+                && textarea.selectionEnd === flashEnd) {
+                try {
+                    textarea.setSelectionRange(savedStart, savedEnd);
+                } catch { /* ignore */ }
+            }
+        }, FLASH_DURATION);
+    }
+
     // --- Interceptor ---
     let lastBlockedAt = 0;
+
+    function block(e, message) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+        const now = Date.now();
+        if (now - lastBlockedAt > 300) {
+            lastBlockedAt = now;
+            notify(message);
+        }
+    }
 
     function intercept(e) {
         const textarea = document.querySelector('#send_textarea');
         if (!textarea) return;
-        if (!hasUnbalancedDoubleQuotes(textarea.value)) return;
+        const value = textarea.value;
 
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        e.stopPropagation();
+        const unmatched = findUnmatchedQuotePositions(value);
+        if (unmatched.length) {
+            block(e, 'Unclosed double quote detected — message not sent.');
+            flashPositions(textarea, unmatched);
+            return;
+        }
 
-        const now = Date.now();
-        if (now - lastBlockedAt > 300) {
-            lastBlockedAt = now;
-            notify('Unclosed double quote detected — message not sent.');
+        const empty = findEmptyQuotePositions(value);
+        if (empty.length) {
+            block(e, 'Empty quotes detected — message not sent.');
+            flashPositions(textarea, empty);
+            return;
         }
     }
 
@@ -126,21 +209,16 @@
             ensureObserver();
         }
 
-        // Mobile orientation changes rebuild the input area.
         window.addEventListener('orientationchange', () => {
             setTimeout(rearmIfDetached, 500);
         });
 
-        // Watchdog for any other rebuild we didn't anticipate.
         setInterval(rearmIfDetached, 2000);
 
         console.log(`✅ ${LOG} ready.`);
     }
 
-    // ST extensions load after DOMContentLoaded, so readyState is
-    // always 'interactive' or 'complete' by the time this IIFE runs.
     init();
 
-    // Idempotent: no-op if init already ran.
     document.addEventListener('SillyTavernReady', init);
 })();
