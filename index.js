@@ -39,7 +39,6 @@
 
     // --- Send-button finder (desktop + mobile variants) ---
     function findSendButton() {
-        // Try the common selectors in order of specificity.
         const candidates = [
             '#send_but',
             '.send_but',
@@ -54,7 +53,7 @@
         return null;
     }
 
-    // --- The interceptor (attached directly to the button) ---
+    // --- The interceptor ---
     let lastBlockedAt = 0;
 
     function intercept(e) {
@@ -62,7 +61,6 @@
         if (!textarea) return;
         if (!hasUnbalancedDoubleQuotes(textarea.value)) return;
 
-        // Block the event before ST's handler sees it.
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
@@ -74,16 +72,16 @@
         }
     }
 
-    // --- Attach listeners directly to the button ---
+    // --- State ---
+    let initialised = false;
     let attachedButton = null;
+    let observer = null;
+    let rearmTimer = null;
 
+    // --- Attach listeners directly to the button ---
     function attachToButton(btn) {
-        if (btn === attachedButton) return; // already done
+        if (!btn || btn === attachedButton) return;
         attachedButton = btn;
-
-        // Capture phase on the button itself — fires before any
-        // listener ST has bound to the same element, and before
-        // the event bubbles up to document.
         btn.addEventListener('pointerdown', intercept, true);
         btn.addEventListener('touchstart', intercept, true);
         btn.addEventListener('touchend', intercept, true);
@@ -91,30 +89,57 @@
         console.log(`${LOG} interceptors attached to send button.`);
     }
 
-    // --- MutationObserver: catch the button whenever it appears ---
-    function observeForSendButton() {
-        const tryAttach = () => {
+    // --- Observer lifecycle ---
+    // Created only when we don't have a live button. Disconnects
+    // itself the moment we successfully attach to a connected one.
+    function ensureObserver() {
+        if (observer) return;
+        observer = new MutationObserver(() => {
             const btn = findSendButton();
-            if (btn) attachToButton(btn);
-        };
-
-        // Initial attempt.
-        tryAttach();
-
-        // Watch for DOM changes (ST may re-render the input area,
-        // especially on mobile orientation changes).
-        const observer = new MutationObserver(() => {
-            tryAttach();
+            if (!btn) return;
+            attachToButton(btn);
+            if (attachedButton && attachedButton.isConnected) {
+                observer.disconnect();
+                observer = null;
+            }
         });
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-        });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // --- Init ---
+    function checkButtonAlive() {
+        if (attachedButton && !attachedButton.isConnected) {
+            attachedButton = null;
+            ensureObserver();
+        }
+    }
+
+    // --- Init (idempotent) ---
     function init() {
-        observeForSendButton();
+        if (initialised) return;
+        initialised = true;
+
+        const btn = findSendButton();
+        if (btn) {
+            attachToButton(btn);
+        } else {
+            ensureObserver();
+        }
+
+        // Mobile orientation changes rebuild the input area.
+        // Wait briefly for the DOM to settle before re-checking.
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                if (attachedButton && !attachedButton.isConnected) {
+                    attachedButton = null;
+                }
+                if (!attachedButton) ensureObserver();
+            }, 500);
+        });
+
+        // Watchdog: catch any other rebuild we didn't anticipate
+        // (theme switch, chat reload, etc.).
+        rearmTimer = setInterval(checkButtonAlive, 2000);
+
         console.log(`✅ ${LOG} ready.`);
     }
 
@@ -126,5 +151,6 @@
     }
 
     // Re-arm after ST fully boots (TauriTavern may load later).
+    // init() is now idempotent, so this is a no-op if already run.
     document.addEventListener('SillyTavernReady', () => setTimeout(init, 500));
 })();
