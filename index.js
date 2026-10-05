@@ -37,9 +37,10 @@
                 '  caret-color: transparent !important;',
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
-                // Matches SillyTavern's error toast colour (--fullred),
-                // with a hardcoded fallback of ST's default error red.
-                '  background-color: var(--fullred, #cc3333);',
+                // Fallback for WebViews without color-mix().
+                '  background-color: rgba(204, 51, 51, 0.35);',
+                // Tint the error red at 35% opacity where supported.
+                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 35%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 '@keyframes quoteGuardFade {',
@@ -369,4 +370,4 @@
     }
 
     document.addEventListener('SillyTavernReady', init);
-})();s
+})();
