@@ -5,7 +5,7 @@
     const FLASH_DURATION = 900;
     const FLASH_MAX_SPAN = 40;
 
-    // --- Style injection (deferred, defensive) ---
+    // --- Style injection ---
     function injectFlashStyle() {
         try {
             if (document.getElementById('quote-guard-style')) return true;
@@ -15,12 +15,16 @@
             style.id = 'quote-guard-style';
             style.textContent = [
                 '@keyframes quoteGuardFlash {',
-                '  0%   { outline-color: rgba(220, 60, 60, 0.9); }',
-                '  100% { outline-color: rgba(220, 60, 60, 0); }',
+                '  0% {',
+                '    box-shadow: 0 0 0 4px rgba(220, 60, 60, 0.9),',
+                '                inset 0 0 0 4px rgba(220, 60, 60, 0.9);',
+                '  }',
+                '  100% {',
+                '    box-shadow: 0 0 0 4px rgba(220, 60, 60, 0),',
+                '                inset 0 0 0 4px rgba(220, 60, 60, 0);',
+                '  }',
                 '}',
                 '#send_textarea.quote-guard-flash {',
-                '  outline: 3px solid rgba(220, 60, 60, 0.9);',
-                '  outline-offset: 2px;',
                 `  animation: quoteGuardFlash ${FLASH_DURATION}ms ease-out forwards;`,
                 '}',
             ].join('\n');
@@ -100,53 +104,55 @@
     }
 
     // --- Flash ---
-    function isTauriMobile() {
-        if (typeof window.__TAURITAVERN__ === 'undefined') return false;
-        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    }
 
+    // CSS-based flash. Renders on every platform, including where the
+    // native IME owns the textarea's selection and setSelectionRange()
+    // has no visible effect.
     function flashTextareaOutline(textarea) {
+        if (!textarea) return;
+        textarea.classList.remove('quote-guard-flash');
+        void textarea.offsetWidth;  // force reflow so the animation restarts
         textarea.classList.add('quote-guard-flash');
+        console.log(`${LOG} flash → box-shadow`);
         setTimeout(() => {
             textarea.classList.remove('quote-guard-flash');
         }, FLASH_DURATION);
     }
 
+    // Selection-based flash. Nice on standard browsers, visually a no-op
+    // where the IME owns the selection. focus() is still useful — it
+    // brings the keyboard back on mobile.
+    function flashSelection(textarea, positions) {
+        try {
+            const sorted = positions.slice().sort((a, b) => a - b);
+            const first = sorted[0];
+            const last = sorted[sorted.length - 1] + 1;
+
+            const savedStart = textarea.selectionStart;
+            const savedEnd = textarea.selectionEnd;
+
+            textarea.focus();
+
+            const flashStart = first;
+            const flashEnd = last - first <= FLASH_MAX_SPAN ? last : first + 1;
+            textarea.setSelectionRange(flashStart, flashEnd);
+
+            setTimeout(() => {
+                if (textarea.selectionStart === flashStart
+                    && textarea.selectionEnd === flashEnd) {
+                    try { textarea.setSelectionRange(savedStart, savedEnd); }
+                    catch { /* ignore */ }
+                }
+            }, FLASH_DURATION);
+        } catch (err) {
+            console.warn(LOG, 'selection flash failed:', err);
+        }
+    }
+
     function flashPositions(textarea, positions) {
         if (!positions.length) return;
-
-        if (isTauriMobile()) {
-            flashTextareaOutline(textarea);
-            return;
-        }
-
-        const sorted = positions.slice().sort((a, b) => a - b);
-        const first = sorted[0];
-        const last = sorted[sorted.length - 1] + 1;
-
-        const savedStart = textarea.selectionStart;
-        const savedEnd = textarea.selectionEnd;
-
-        textarea.focus();
-
-        let flashStart, flashEnd;
-        if (last - first <= FLASH_MAX_SPAN) {
-            flashStart = first;
-            flashEnd = last;
-        } else {
-            flashStart = first;
-            flashEnd = first + 1;
-        }
-        textarea.setSelectionRange(flashStart, flashEnd);
-
-        setTimeout(() => {
-            if (textarea.selectionStart === flashStart
-                && textarea.selectionEnd === flashEnd) {
-                try {
-                    textarea.setSelectionRange(savedStart, savedEnd);
-                } catch { /* ignore */ }
-            }
-        }, FLASH_DURATION);
+        flashTextareaOutline(textarea);
+        flashSelection(textarea, positions);
     }
 
     // --- Interceptor ---
