@@ -3,9 +3,10 @@
 
     // ============================================================
     // SillyTavern Extension: Quote Guard
-    // Blocks sending a user message that contains an unclosed
-    // double quote. Intercepts before ST's send handler runs,
-    // so no message is added and no generation is started.
+    // Blocks the Send button from firing if the message contains
+    // an unclosed double quote. Only the send button is guarded —
+    // the Enter key is left untouched (important on Android, where
+    // Enter inserts a newline).
     // ============================================================
 
     const LOG = '[QuoteGuard]';
@@ -46,49 +47,48 @@
         return count % 2 !== 0;
     }
 
-    // --- Capture-phase interceptor ---
+    // --- Send button interceptor ---
+
+    let lastBlockedAt = 0;
 
     function intercept(e) {
-        let textarea = null;
+        // Only care about events targeting the send button.
+        // `closest` handles clicks on child elements (SVG icon etc.).
+        const btn = e.target?.closest?.('#send_but');
+        if (!btn) return;
 
-        if (e.type === 'submit') {
-            // Only care about the chat send form.
-            if (e.target?.id !== 'send_form') return;
-            textarea = document.querySelector('#send_textarea');
-        } else if (e.type === 'keydown') {
-            // Only care about Enter (without Shift) in the send box.
-            if (e.target?.id !== 'send_textarea') return;
-            if (e.key !== 'Enter' || e.shiftKey) return;
-            textarea = e.target;
-        } else {
-            return;
-        }
-
+        const textarea = document.querySelector('#send_textarea');
         if (!textarea) return;
         if (!hasUnbalancedDoubleQuotes(textarea.value)) return;
 
-        // Block the event before ST's handlers ever see it.
+        // Block the event before ST's own handler runs.
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
 
-        notify('Unclosed double quote detected — message not sent.');
+        // Throttle the toast so pointerdown+click don't double-fire it.
+        const now = Date.now();
+        if (now - lastBlockedAt > 250) {
+            lastBlockedAt = now;
+            notify('Unclosed double quote detected — message not sent.');
+        }
     }
 
     // --- Setup ---
 
     function setup() {
-        // Attach on `document` in capture phase so we always run first,
-        // regardless of when ST bound its own listeners.
         if (document.body?.dataset.quoteGuardAttached) return true;
 
-        document.addEventListener('submit', intercept, true);
-        document.addEventListener('keydown', intercept, true);
+        // Capture phase on `document` guarantees we run before any
+        // listener ST attached to the button itself. We watch both
+        // `pointerdown` and `click` because different ST builds bind
+        // to different events, and some UIs fire one before the other.
+        document.addEventListener('pointerdown', intercept, true);
+        document.addEventListener('click', intercept, true);
 
         if (document.body) {
             document.body.dataset.quoteGuardAttached = 'true';
         }
-
         return true;
     }
 
@@ -123,7 +123,5 @@
         document.addEventListener('DOMContentLoaded', init);
     }
 
-    // ST fires this once its UI has fully booted; re-arm in case we
-    // ran before the chat DOM existed.
     document.addEventListener('SillyTavernReady', () => setTimeout(init, 500));
 })();
