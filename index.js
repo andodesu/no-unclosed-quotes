@@ -16,21 +16,6 @@
             const style = document.createElement('style');
             style.id = 'quote-guard-style';
             style.textContent = [
-                // Textarea glow (belt-and-braces fallback).
-                '@keyframes quoteGuardFlash {',
-                '  0% {',
-                '    box-shadow: 0 0 0 4px rgba(220, 60, 60, 0.9),',
-                '                inset 0 0 0 4px rgba(220, 60, 60, 0.9);',
-                '  }',
-                '  100% {',
-                '    box-shadow: 0 0 0 4px rgba(220, 60, 60, 0),',
-                '                inset 0 0 0 4px rgba(220, 60, 60, 0);',
-                '  }',
-                '}',
-                '#send_textarea.quote-guard-flash {',
-                `  animation: quoteGuardFlash ${FLASH_DURATION}ms ease-out forwards;`,
-                '}',
-                // Overlay for per-character highlight.
                 `.${OVERLAY_CLASS} {`,
                 '  position: fixed;',
                 '  pointer-events: none;',
@@ -42,7 +27,10 @@
                 '  background: transparent;',
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
+                // Fallback for WebViews without color-mix().
                 '  background-color: rgba(220, 60, 60, 0.45);',
+                // Tint using SillyTavern's theme quote colour at 45% opacity.
+                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 45%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 '@keyframes quoteGuardFade {',
@@ -127,15 +115,6 @@
             if (el) return el;
         }
         return null;
-    }
-
-    // --- Flash: textarea glow (universal) ---
-    function flashTextareaGlow(textarea) {
-        if (!textarea) return;
-        textarea.classList.remove('quote-guard-flash');
-        void textarea.offsetWidth;
-        textarea.classList.add('quote-guard-flash');
-        setTimeout(() => textarea.classList.remove('quote-guard-flash'), FLASH_DURATION);
     }
 
     // --- Flash: overlay with per-character highlight ---
@@ -252,10 +231,9 @@
         }
     }
 
-    // --- Flash: all three, safely ---
+    // --- Flash: overlay + selection (glow removed) ---
     function flashPositions(textarea, positions) {
         if (!positions.length) return;
-        flashTextareaGlow(textarea);
         flashOverlay(textarea, positions);
         flashSelection(textarea, positions);
     }
