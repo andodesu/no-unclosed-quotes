@@ -29,14 +29,18 @@
                 '  overflow-wrap: break-word;',
                 '  color: transparent;',
                 '  background: transparent;',
+                // The important bit: multiply blends the tint with the
+                // pixels underneath. Dark text stays dark; light background
+                // gets tinted. On a dark theme, switch to `screen`.
+                '  mix-blend-mode: multiply;',
                 '}',
                 `.${QUOTED_CLASS} {`,
-                '  background-color: rgba(220, 60, 60, 0.22);',
-                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 28%, transparent);',
+                '  background-color: rgba(220, 60, 60, 0.35);',
+                '  background-color: color-mix(in srgb, var(--SmartThemeQuoteColor, #dc3c3c) 45%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 `.${ALERT_CLASS} {`,
-                '  background-color: rgba(220, 60, 60, 0.75);',
+                '  background-color: rgba(220, 60, 60, 0.85);',
                 '  animation: quoteGuardPulse 300ms ease-in-out 3;',
                 '  border-radius: 2px;',
                 '}',
@@ -240,23 +244,17 @@
         overlayEl.scrollLeft = textareaEl.scrollLeft;
     }
 
-    // Diagnostic — logs what the textarea looks like on focus.
     function logFocusState() {
         if (!textareaEl) return;
         try {
             const cs = getComputedStyle(textareaEl);
             console.log(`${LOG} textarea focus state:`, {
                 background: cs.backgroundColor,
+                color: cs.color,
                 position: cs.position,
                 zIndex: cs.zIndex,
                 transform: cs.transform,
                 filter: cs.filter,
-                parentPosition: textareaEl.parentElement
-                    ? getComputedStyle(textareaEl.parentElement).position
-                    : null,
-                parentZ: textareaEl.parentElement
-                    ? getComputedStyle(textareaEl.parentElement).zIndex
-                    : null,
             });
         } catch { /* ignore */ }
     }
@@ -277,7 +275,6 @@
         if (!el) return false;
         if (el === textareaEl && el.isConnected) return true;
 
-        // Clean up previous.
         if (textareaEl) {
             try {
                 textareaEl.removeEventListener('input', onInput);
@@ -302,11 +299,8 @@
         ensureOverlay();
         refreshAll();
 
-        // Re-apply everything when the theme changes attributes on focus.
         try {
-            attrObserver = new MutationObserver(() => {
-                refreshAll();
-            });
+            attrObserver = new MutationObserver(() => refreshAll());
             attrObserver.observe(textareaEl, {
                 attributes: true,
                 attributeFilter: ['class', 'style'],
@@ -331,8 +325,6 @@
 
     function onFocus() {
         logFocusState();
-        // The theme may apply a focus style this frame; re-apply on the
-        // next two frames as well so we win the style race.
         requestAnimationFrame(() => {
             refreshAll();
             requestAnimationFrame(refreshAll);
