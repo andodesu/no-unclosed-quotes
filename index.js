@@ -233,11 +233,15 @@
     // --- Flash: overlay only ---
     function flashPositions(textarea, positions) {
         if (!positions.length) return;
+        const now = Date.now();
+        if (now - lastFlashedAt < FLASH_DURATION) return;
+        lastFlashedAt = now;
         flashOverlay(textarea, positions);
     }
 
     // --- Interceptor ---
     let lastNotifiedAt = 0;
+    let lastFlashedAt = 0;
 
     function block(e, message) {
         e.preventDefault();
