@@ -2,11 +2,11 @@
     'use strict';
 
     const LOG = '[QuoteGuard]';
-    const FLASH_DURATION = 1200;
+    const FLASH_DURATION = 1430;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
-    const NOTIFY_COOLDOWN_MS = 2000;
-    const TOAST_DURATION_MS = 1750;
+    const NOTIFY_COOLDOWN_MS = 1430;
+    const TOAST_DURATION_MS = 1250;
 
     // --- Style injection ---
     function injectFlashStyle() {
