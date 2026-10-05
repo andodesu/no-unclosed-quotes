@@ -5,6 +5,7 @@
     const FLASH_DURATION = 900;
     const OVERLAY_CLASS = 'quote-guard-overlay';
     const HIGHLIGHT_CLASS = 'quote-guard-highlight';
+    const NOTIFY_COOLDOWN_MS = 2500;
 
     // --- Style injection ---
     function injectFlashStyle() {
@@ -37,9 +38,9 @@
                 '}',
                 `.${HIGHLIGHT_CLASS} {`,
                 // Fallback for WebViews without color-mix().
-                '  background-color: rgba(204, 51, 51, 0.2);',
-                // Tint the error red at 20% opacity where supported.
-                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 20%, transparent);',
+                '  background-color: rgba(204, 51, 51, 0.25);',
+                // Tint the error red at 25% opacity where supported.
+                '  background-color: color-mix(in srgb, var(--fullred, #cc3333) 25%, transparent);',
                 '  border-radius: 2px;',
                 '}',
                 '@keyframes quoteGuardFade {',
@@ -220,15 +221,15 @@
     }
 
     // --- Interceptor ---
-    let lastBlockedAt = 0;
+    let lastNotifiedAt = 0;
 
     function block(e, message) {
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
         const now = Date.now();
-        if (now - lastBlockedAt > 300) {
-            lastBlockedAt = now;
+        if (now - lastNotifiedAt > NOTIFY_COOLDOWN_MS) {
+            lastNotifiedAt = now;
             notify(message);
         }
     }
